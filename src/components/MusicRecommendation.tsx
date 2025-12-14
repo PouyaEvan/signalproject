@@ -16,44 +16,32 @@ import {
   SpotifyTrack, 
   getAllGenres, 
   genreDisplayNames,
-  getMusicRecommendation,
-  getTrackDownloadUrl
+  getMusicRecommendation
 } from '@/lib/spotify-api';
 import { 
   Music, 
   Play, 
-  Download, 
   Loader2, 
   ExternalLink,
   Disc3,
   Clock,
-  User
+  User,
+  CheckCircle2
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 
 interface MusicRecommendationProps {
   emotion: string | null;
-  apiKey: string;
 }
 
-export function MusicRecommendation({ emotion, apiKey }: MusicRecommendationProps) {
+export function MusicRecommendation({ emotion }: MusicRecommendationProps) {
   const [selectedGenre, setSelectedGenre] = useState<MusicGenre>('pop');
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [downloadingTrack, setDownloadingTrack] = useState<string | null>(null);
   const { toast } = useToast();
 
   const handleSearch = async () => {
-    if (!apiKey) {
-      toast({
-        title: 'API Key Required',
-        description: 'Please enter your Spotify API key in settings',
-        variant: 'destructive'
-      });
-      return;
-    }
-
     if (!emotion) {
       toast({
         title: 'No Emotion Detected',
@@ -65,7 +53,7 @@ export function MusicRecommendation({ emotion, apiKey }: MusicRecommendationProp
 
     setIsLoading(true);
     try {
-      const result = await getMusicRecommendation(apiKey, emotion, selectedGenre);
+      const result = await getMusicRecommendation(emotion, selectedGenre);
       setTracks(result.tracks);
       setSearchQuery(result.searchQuery);
       
@@ -78,49 +66,11 @@ export function MusicRecommendation({ emotion, apiKey }: MusicRecommendationProp
     } catch (error) {
       toast({
         title: 'Search Failed',
-        description: 'Failed to search for music. Please check your API key.',
+        description: 'Failed to search for music. Please try again.',
         variant: 'destructive'
       });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleDownload = async (track: SpotifyTrack) => {
-    if (!track.url) {
-      toast({
-        title: 'No URL',
-        description: 'Track URL not available',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    setDownloadingTrack(track.title);
-    try {
-      const downloadUrl = await getTrackDownloadUrl(apiKey, track.url);
-      if (downloadUrl) {
-        window.open(downloadUrl, '_blank');
-        toast({
-          title: 'Download Started',
-          description: `Downloading "${track.title}"`,
-        });
-      } else {
-        // If no download URL, open the track URL
-        window.open(track.url, '_blank');
-        toast({
-          title: 'Opening Track',
-          description: `Opening "${track.title}" on Spotify`,
-        });
-      }
-    } catch (error) {
-      toast({
-        title: 'Download Failed',
-        description: 'Failed to get download link',
-        variant: 'destructive'
-      });
-    } finally {
-      setDownloadingTrack(null);
     }
   };
 
@@ -137,8 +87,9 @@ export function MusicRecommendation({ emotion, apiKey }: MusicRecommendationProp
           <Music className="h-6 w-6 text-primary" />
           Music Recommendation
         </CardTitle>
-        <CardDescription>
-          Get music that matches your brain&apos;s emotional state
+        <CardDescription className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-green-500" />
+          <span>Spotify Connected</span>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -241,22 +192,11 @@ export function MusicRecommendation({ emotion, apiKey }: MusicRecommendationProp
                       size="icon"
                       variant="ghost"
                       onClick={() => window.open(track.url, '_blank')}
+                      title="Open in Spotify"
                     >
                       <ExternalLink className="h-4 w-4" />
                     </Button>
                   )}
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => handleDownload(track)}
-                    disabled={downloadingTrack === track.title}
-                  >
-                    {downloadingTrack === track.title ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )}
-                  </Button>
                 </div>
               </div>
             ))}

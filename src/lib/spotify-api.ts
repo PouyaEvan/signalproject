@@ -1,4 +1,9 @@
 // Spotify API integration for music recommendations
+// Using official Spotify Web API with Client Credentials
+
+// Spotify API Credentials (Hardcoded)
+const SPOTIFY_CLIENT_ID = "00953e5f30d54024a8cf0a72dc6b766f";
+const SPOTIFY_CLIENT_SECRET = "30be2eeee20541849a379333aefa4842";
 
 export type MusicGenre = 'pop' | 'rock' | 'jazz' | 'classical' | 'electronic' | 'hiphop' | 'rnb' | 'ambient';
 
@@ -8,6 +13,7 @@ export interface SpotifyTrack {
   duration: string;
   url: string;
   imageUrl?: string;
+  previewUrl?: string;
 }
 
 export interface SpotifySearchResult {
@@ -62,14 +68,62 @@ export function getSearchQuery(emotion: string, genre: MusicGenre): string {
   return queries[Math.floor(Math.random() * queries.length)];
 }
 
-// Search Spotify using the API
-export async function searchSpotify(
-  apiKey: string,
-  query: string
-): Promise<SpotifySearchResult> {
+// Get Spotify access token using Client Credentials flow
+let cachedToken: { token: string; expires: number } | null = null;
+
+async function getSpotifyToken(): Promise<string | null> {
+  // Check if we have a valid cached token
+  if (cachedToken && Date.now() < cachedToken.expires) {
+    return cachedToken.token;
+  }
+
   try {
+    const authString = `${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`;
+    const authBase64 = btoa(authString);
+
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${authBase64}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: 'grant_type=client_credentials'
+    });
+
+    if (!response.ok) {
+      throw new Error(`Token request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Cache the token (expires_in is in seconds, subtract 60 for safety margin)
+    cachedToken = {
+      token: data.access_token,
+      expires: Date.now() + (data.expires_in - 60) * 1000
+    };
+
+    return data.access_token;
+  } catch (error) {
+    console.error('Failed to get Spotify token:', error);
+    return null;
+  }
+}
+
+// Search Spotify using the official API
+export async function searchSpotify(query: string): Promise<SpotifySearchResult> {
+  try {
+    const token = await getSpotifyToken();
+    if (!token) {
+      throw new Error('Failed to get access token');
+    }
+
     const response = await fetch(
-      `https://api.fast-creat.ir/spotify?apikey=${encodeURIComponent(apiKey)}&action=search&query=${encodeURIComponent(query)}`
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      }
     );
     
     if (!response.ok) {
@@ -81,14 +135,15 @@ export async function searchSpotify(
     // Parse the response based on the API structure
     const tracks: SpotifyTrack[] = [];
     
-    if (data && Array.isArray(data.result)) {
-      for (const item of data.result.slice(0, 5)) { // Get top 5 results
+    if (data?.tracks?.items) {
+      for (const item of data.tracks.items) {
         tracks.push({
-          title: item.title || item.name || 'Unknown Title',
-          artist: item.artist || item.artists?.join(', ') || 'Unknown Artist',
-          duration: item.duration || item.duration_ms ? formatDuration(item.duration_ms) : '0:00',
-          url: item.url || item.link || item.external_urls?.spotify || '',
-          imageUrl: item.image || item.album?.images?.[0]?.url
+          title: item.name || 'Unknown Title',
+          artist: item.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown Artist',
+          duration: formatDuration(item.duration_ms || 0),
+          url: item.external_urls?.spotify || '',
+          imageUrl: item.album?.images?.[0]?.url,
+          previewUrl: item.preview_url
         });
       }
     }
@@ -100,36 +155,13 @@ export async function searchSpotify(
   }
 }
 
-// Download/get track URL
-export async function getTrackDownloadUrl(
-  apiKey: string,
-  trackUrl: string
-): Promise<string | null> {
-  try {
-    const response = await fetch(
-      `https://api.fast-creat.ir/spotify?apikey=${encodeURIComponent(apiKey)}&action=dl&url=${encodeURIComponent(trackUrl)}`
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Download API request failed: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    return data.download_url || data.url || data.result?.url || null;
-  } catch (error) {
-    console.error('Track download error:', error);
-    return null;
-  }
-}
-
 // Get music recommendations based on emotion and genre
 export async function getMusicRecommendation(
-  apiKey: string,
   emotion: string,
   genre: MusicGenre
 ): Promise<MusicRecommendation> {
   const searchQuery = getSearchQuery(emotion, genre);
-  const searchResult = await searchSpotify(apiKey, searchQuery);
+  const searchResult = await searchSpotify(searchQuery);
   
   return {
     emotion,

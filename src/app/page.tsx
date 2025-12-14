@@ -57,8 +57,6 @@ export default function Home() {
   const [bandPowers, setBandPowers] = useState<BandPowers | null>(null);
   const [emotionPrediction, setEmotionPrediction] = useState<EmotionPrediction | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const { toast } = useToast();
 
   // Load a predefined signal
@@ -183,14 +181,10 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-            >
-              <Settings className="h-4 w-4 mr-1" />
-              API Key
-            </Button>
+            <div className="flex items-center gap-1 text-sm text-green-500">
+              <Settings className="h-4 w-4" />
+              <span>Spotify Connected</span>
+            </div>
             <Button variant="ghost" size="icon" asChild>
               <a href="https://github.com" target="_blank" rel="noopener noreferrer">
                 <Github className="h-5 w-5" />
@@ -198,22 +192,6 @@ export default function Home() {
             </Button>
           </div>
         </div>
-        
-        {/* API Key Input */}
-        {showApiKeyInput && (
-          <div className="container mx-auto px-4 pb-4">
-            <div className="flex gap-2 items-center">
-              <Label className="text-sm whitespace-nowrap">Spotify API Key:</Label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your API key..."
-                className="flex-1 h-9 px-3 rounded-md border bg-background text-sm"
-              />
-            </div>
-          </div>
-        )}
       </header>
 
       {/* Main Content */}
@@ -462,7 +440,6 @@ export default function Home() {
 
               <MusicRecommendation 
                 emotion={emotionPrediction?.emotion || null}
-                apiKey={apiKey}
               />
             </div>
           </TabsContent>
