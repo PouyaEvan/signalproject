@@ -47,8 +47,13 @@ import {
   Github,
   Heart,
   Zap,
-  Waves
+  Waves,
+  Leaf,
+  Gamepad2,
+  BookOpen,
+  HeartPulse
 } from 'lucide-react';
+import Link from 'next/link';
 
 export default function Home() {
   // State
@@ -181,6 +186,27 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/mind-garden">
+              <Button variant="outline" size="sm" className="gap-2 border-green-500/50 text-green-500 hover:bg-green-500/10">
+                <Leaf className="h-4 w-4" />
+                <span className="hidden sm:inline">باغبان ذهن</span>
+                <Gamepad2 className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href="/neuro-tutor">
+              <Button variant="outline" size="sm" className="gap-2 border-purple-500/50 text-purple-500 hover:bg-purple-500/10">
+                <BookOpen className="h-4 w-4" />
+                <span className="hidden sm:inline">نورو توتور</span>
+                <Brain className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href="/soul-resonance">
+              <Button variant="outline" size="sm" className="gap-2 border-rose-500/50 text-rose-500 hover:bg-rose-500/10">
+                <HeartPulse className="h-4 w-4" />
+                <span className="hidden sm:inline">طنین روح</span>
+                <Music className="h-4 w-4" />
+              </Button>
+            </Link>
             <div className="flex items-center gap-1 text-sm text-green-500">
               <Settings className="h-4 w-4" />
               <span>Spotify Connected</span>
