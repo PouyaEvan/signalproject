@@ -1,7 +1,7 @@
 // Independent Component Analysis (ICA) for artifact removal
 // Simplified implementation using FastICA algorithm
 
-import { Matrix, EVD } from 'ml-matrix';
+import { Matrix, EVD, pseudoInverse } from 'ml-matrix';
 
 export interface ICAResult {
   cleanSignal: number[];
@@ -225,11 +225,11 @@ export function removeArtifactsICA(
   });
   
   // Reconstruct signal
-  const wInverse = wMatrix.pseudoInverse();
+  const wInverse = pseudoInverse(wMatrix);
   const cleanWhitened = wInverse.mmul(new Matrix(cleanComponents));
   
   // Un-whiten
-  const whiteningInverse = whiteningMatrix.pseudoInverse();
+  const whiteningInverse = pseudoInverse(whiteningMatrix);
   const cleanCentered = whiteningInverse.mmul(cleanWhitened);
   
   // Add means back
