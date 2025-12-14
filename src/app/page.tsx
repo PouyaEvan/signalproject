@@ -51,7 +51,8 @@ import {
   Leaf,
   Gamepad2,
   BookOpen,
-  HeartPulse
+  HeartPulse,
+  ListMusic
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -205,6 +206,12 @@ export default function Home() {
                 <HeartPulse className="h-4 w-4" />
                 <span className="hidden sm:inline">طنین روح</span>
                 <Music className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href="/moodflow">
+              <Button variant="outline" size="sm" className="gap-2 border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">
+                <ListMusic className="h-4 w-4" />
+                <span className="hidden sm:inline">MoodFlow</span>
               </Button>
             </Link>
             <div className="flex items-center gap-1 text-sm text-green-500">
