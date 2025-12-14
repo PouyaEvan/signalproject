@@ -60,6 +60,22 @@ GENRE_DISPLAY = {
     MusicGenre.AMBIENT: "🌙 Ambient",
 }
 
+REGION_DISPLAY = {
+    "international": "🌍 International",
+    "persian": "🇮🇷 Persian",
+}
+
+GENRE_SEED_MAP = {
+    "pop": "pop",
+    "rock": "rock",
+    "jazz": "jazz",
+    "classical": "classical",
+    "electronic": "electronic",
+    "hiphop": "hip-hop",
+    "rnb": "r-n-b",
+    "ambient": "ambient",
+}
+
 EMOTION_MUSIC_MAP = {
     "happy": {
         "pop": ["happy upbeat pop", "feel good pop hits"],
@@ -92,6 +108,8 @@ EMOTION_MUSIC_MAP = {
         "ambient": ["sad ambient", "melancholic soundscapes"],
     },
 }
+
+PERSIAN_SUFFIX = ["persian", "iranian", "farsi"]
 
 EMOTION_COLORS = {
     "happy": "#22c55e",
@@ -269,32 +287,64 @@ def calculate_band_powers(data: np.ndarray, sr: int) -> Dict[str, float]:
 
 
 def classify_emotion(data: np.ndarray, sr: int) -> Dict:
-    """Classify emotion based on band powers"""
+    """Classify emotion using calibrated band-power ratios (improved accuracy on synthetic EEG)."""
     powers = calculate_band_powers(data, sr)
-    
-    total = sum(powers.values()) + 1e-10
-    norm = {k: v/total for k, v in powers.items()}
-    
-    # Calculate scores
-    happy_score = norm['alpha'] * 1.5 + norm['beta'] * 0.8 + norm['gamma'] * 1.2
-    neutral_score = norm['alpha'] * 1.0 + norm['beta'] * 1.0 + norm['theta'] * 0.5
-    sad_score = norm['theta'] * 1.5 + norm['delta'] * 1.2 - norm['alpha'] * 0.5
-    
-    # Softmax
-    exp_h = np.exp(happy_score)
-    exp_n = np.exp(neutral_score)
-    exp_s = np.exp(sad_score * 0.8)
+    total = sum(powers.values()) + 1e-12
+    norm = {k: v / total for k, v in powers.items()}
+
+    # Ratios and helper features
+    alpha_r = norm['alpha']
+    beta_r = norm['beta']
+    gamma_r = norm['gamma']
+    theta_r = norm['theta']
+    delta_r = norm['delta']
+    theta_delta = theta_r + delta_r
+    high_freq = alpha_r + beta_r + gamma_r
+    beta_alpha = beta_r / (alpha_r + 1e-6)
+
+    # Calibrated scores (tuned for the synthetic generators)
+    happy_score = (
+        2.0 * alpha_r
+        + 1.1 * beta_r
+        + 1.3 * gamma_r
+        - 0.6 * theta_delta
+        + 0.3 * beta_alpha
+        + 0.2 * high_freq
+    )
+
+    neutral_score = (
+        1.2 * alpha_r
+        + 1.0 * beta_r
+        + 0.8 * theta_r
+        + 0.5 * gamma_r
+        - 0.3 * abs(alpha_r - 0.30)
+        - 0.3 * abs(theta_delta - 0.35)
+    )
+
+    sad_score = (
+        1.5 * theta_delta
+        + 0.8 * delta_r
+        + 0.4 * theta_r
+        - 0.7 * alpha_r
+        - 0.4 * gamma_r
+    )
+
+    # Softmax with a mild temperature for better separation
+    temp = 1.1
+    exp_h = np.exp(happy_score / temp)
+    exp_n = np.exp(neutral_score / temp)
+    exp_s = np.exp(sad_score / temp)
     total_exp = exp_h + exp_n + exp_s
-    
+
     probs = {
         'happy': exp_h / total_exp,
         'neutral': exp_n / total_exp,
         'sad': exp_s / total_exp,
     }
-    
+
     emotion = max(probs, key=probs.get)
     confidence = probs[emotion]
-    
+
     return {
         'emotion': emotion,
         'confidence': confidence,
@@ -336,31 +386,69 @@ def get_spotify_token() -> Optional[str]:
     return None
 
 
-def search_spotify(query: str) -> List[Dict]:
-    """Search Spotify using official API"""
+def _to_market(region: str) -> str:
+    return "IR" if region == "persian" else "US"
+
+
+def _dedupe_tracks(tracks: List[Dict]) -> List[Dict]:
+    seen = set()
+    out = []
+    for t in tracks:
+        key = t.get("url") or f"{t.get('title')}-{t.get('artist')}"
+        if key not in seen:
+            seen.add(key)
+            out.append(t)
+    return out
+
+
+def search_spotify(query: str, genre: str, region: str = "international") -> List[Dict]:
+    """Search Spotify using official API with genre + region awareness"""
     token = get_spotify_token()
     if not token:
         return []
     
     try:
         headers = {"Authorization": f"Bearer {token}"}
-        params = {
-            "q": query,
+        market = _to_market(region)
+        seed = GENRE_SEED_MAP.get(genre, genre)
+        results: List[Dict] = []
+
+        # 1) Recommendations endpoint using seed_genres for better genre fidelity
+        rec_url = (
+            "https://api.spotify.com/v1/recommendations"
+            f"?limit=8&market={market}&seed_genres={seed}"
+        )
+        rec_resp = requests.get(rec_url, headers=headers, timeout=10)
+        if rec_resp.status_code == 200:
+            rec_data = rec_resp.json()
+            for track in rec_data.get("tracks", []):
+                results.append({
+                    "title": track.get("name", "Unknown"),
+                    "artist": ", ".join([a.get("name", "") for a in track.get("artists", [])]),
+                    "album": track.get("album", {}).get("name", ""),
+                    "url": track.get("external_urls", {}).get("spotify", ""),
+                    "preview_url": track.get("preview_url", ""),
+                    "image": track.get("album", {}).get("images", [{}])[0].get("url", "") if track.get("album", {}).get("images") else "",
+                })
+
+        # 2) Fallback search with genre filter
+        search_query = f"{query} genre:\"{seed}\""
+        search_params = {
+            "q": search_query,
             "type": "track",
-            "limit": 5
+            "limit": 8,
+            "market": market,
         }
-        
         response = requests.get(
             "https://api.spotify.com/v1/search",
             headers=headers,
-            params=params,
+            params=search_params,
             timeout=10
         )
         
         if response.status_code == 200:
             data = response.json()
             tracks = data.get("tracks", {}).get("items", [])
-            results = []
             for track in tracks:
                 results.append({
                     "title": track.get("name", "Unknown"),
@@ -370,17 +458,27 @@ def search_spotify(query: str) -> List[Dict]:
                     "preview_url": track.get("preview_url", ""),
                     "image": track.get("album", {}).get("images", [{}])[0].get("url", "") if track.get("album", {}).get("images") else ""
                 })
-            return results
+        
+        return _dedupe_tracks(results)[:8]
     except Exception as e:
         print(f"Spotify search error: {e}")
     
     return []
 
 
-def get_music_query(emotion: str, genre: str) -> str:
-    """Get search query based on emotion and genre"""
-    queries = EMOTION_MUSIC_MAP.get(emotion, {}).get(genre, ["music"])
-    return np.random.choice(queries)
+def get_music_query(emotion: str, genre: str, region: str = "international") -> str:
+    """Get search query based on emotion, genre, and region (international or persian)."""
+    base_queries = EMOTION_MUSIC_MAP.get(emotion, {}).get(genre, ["music"])
+    query = np.random.choice(base_queries)
+
+    if region == "persian":
+        suffix = np.random.choice(PERSIAN_SUFFIX)
+        query = f"{query} {suffix}"
+    else:
+        # Add mild diversity for international searches
+        query = f"{query} best"
+
+    return query
 
 
 # ===================== MAIN APPLICATION =====================
@@ -638,6 +736,7 @@ class BrainSignalApp(ctk.CTk):
         genre_frame = ctk.CTkFrame(self.tab_music)
         genre_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=10)
         genre_frame.grid_columnconfigure(1, weight=1)
+        genre_frame.grid_columnconfigure(3, weight=1)
         
         genre_label = ctk.CTkLabel(genre_frame, text="🎼 Choose Genre:", 
                       font=ctk.CTkFont(size=14, weight="bold"))
@@ -645,13 +744,23 @@ class BrainSignalApp(ctk.CTk):
         
         self.genre_var = ctk.StringVar(value="pop")
         genre_menu = ctk.CTkOptionMenu(genre_frame, variable=self.genre_var,
-                                      values=list(GENRE_DISPLAY.values()))
+                          values=list(GENRE_DISPLAY.values()))
         genre_menu.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+
+        # Region selection
+        region_label = ctk.CTkLabel(genre_frame, text="🌐 Region:",
+                       font=ctk.CTkFont(size=14, weight="bold"))
+        region_label.grid(row=0, column=2, padx=10, pady=10, sticky="e")
+
+        self.region_var = ctk.StringVar(value="international")
+        region_menu = ctk.CTkOptionMenu(genre_frame, variable=self.region_var,
+                           values=list(REGION_DISPLAY.values()))
+        region_menu.grid(row=0, column=3, padx=10, pady=10, sticky="w")
         
         search_btn = ctk.CTkButton(genre_frame, text="🔍 Find Music",
                                   command=self._search_music,
                                   font=ctk.CTkFont(size=14, weight="bold"))
-        search_btn.grid(row=0, column=2, padx=10, pady=10)
+        search_btn.grid(row=0, column=4, padx=10, pady=10)
         
         # Current emotion display
         self.music_emotion_label = ctk.CTkLabel(self.tab_music, 
@@ -867,8 +976,16 @@ class BrainSignalApp(ctk.CTk):
             if display == genre_display:
                 genre = g.value
                 break
-        
-        query = get_music_query(emotion, genre)
+
+        # Get region from display name
+        region_display = self.region_var.get()
+        region = "international"
+        for r, display in REGION_DISPLAY.items():
+            if display == region_display:
+                region = r
+                break
+
+        query = get_music_query(emotion, genre, region)
         
         # Clear previous results
         for widget in self.music_scroll.winfo_children():
@@ -882,7 +999,7 @@ class BrainSignalApp(ctk.CTk):
         
         # Search
         def search():
-            results = search_spotify(query)
+            results = search_spotify(query, genre, region)
             self.after(0, lambda: self._display_music_results(results, query))
         
         thread = threading.Thread(target=search)

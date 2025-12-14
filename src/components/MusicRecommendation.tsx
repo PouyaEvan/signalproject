@@ -13,9 +13,11 @@ import {
 } from '@/components/ui/select';
 import { 
   MusicGenre, 
+  MusicRegion,
   SpotifyTrack, 
   getAllGenres, 
   genreDisplayNames,
+  regionDisplayNames,
   getMusicRecommendation
 } from '@/lib/spotify-api';
 import { 
@@ -36,6 +38,7 @@ interface MusicRecommendationProps {
 
 export function MusicRecommendation({ emotion }: MusicRecommendationProps) {
   const [selectedGenre, setSelectedGenre] = useState<MusicGenre>('pop');
+  const [selectedRegion, setSelectedRegion] = useState<MusicRegion>('international');
   const [tracks, setTracks] = useState<SpotifyTrack[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,7 +56,7 @@ export function MusicRecommendation({ emotion }: MusicRecommendationProps) {
 
     setIsLoading(true);
     try {
-      const result = await getMusicRecommendation(emotion, selectedGenre);
+      const result = await getMusicRecommendation(emotion, selectedGenre, selectedRegion);
       setTracks(result.tracks);
       setSearchQuery(result.searchQuery);
       
@@ -107,7 +110,7 @@ export function MusicRecommendation({ emotion }: MusicRecommendationProps) {
         {/* Genre Selection */}
         <div className="space-y-2">
           <Label>Select Music Genre</Label>
-          <Select value={selectedGenre} onValueChange={(v) => setSelectedGenre(v as MusicGenre)}>
+          <Select value={selectedGenre} onValueChange={(v: MusicGenre) => setSelectedGenre(v)}>
             <SelectTrigger>
               <SelectValue placeholder="Select genre" />
             </SelectTrigger>
@@ -115,6 +118,23 @@ export function MusicRecommendation({ emotion }: MusicRecommendationProps) {
               {getAllGenres().map((genre) => (
                 <SelectItem key={genre} value={genre}>
                   {genreDisplayNames[genre]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Region Selection */}
+        <div className="space-y-2">
+          <Label>Select Region</Label>
+          <Select value={selectedRegion} onValueChange={(v: MusicRegion) => setSelectedRegion(v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select region" />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(regionDisplayNames).map(([key, label]) => (
+                <SelectItem key={key} value={key}>
+                  {label}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -227,36 +227,56 @@ function ruleBasedClassification(signal: number[], sampleRate: number): EmotionP
   const bandPowers = calculateBandPowers(signal, sampleRate);
   
   // Normalize band powers
-  const total = bandPowers.delta + bandPowers.theta + bandPowers.alpha + bandPowers.beta + bandPowers.gamma;
-  const normalized = {
+  const total = bandPowers.delta + bandPowers.theta + bandPowers.alpha + bandPowers.beta + bandPowers.gamma + 1e-12;
+  const norm = {
     delta: bandPowers.delta / total,
     theta: bandPowers.theta / total,
     alpha: bandPowers.alpha / total,
     beta: bandPowers.beta / total,
     gamma: bandPowers.gamma / total
   };
-  
-  // Calculate emotion scores based on typical EEG patterns
-  // Happy: High alpha, moderate beta, some gamma (positive valence)
-  const happyScore = normalized.alpha * 1.5 + normalized.beta * 0.8 + normalized.gamma * 1.2;
-  
-  // Neutral: Balanced patterns
-  const neutralScore = normalized.alpha * 1.0 + normalized.beta * 1.0 + normalized.theta * 0.5;
-  
-  // Sad: High theta, high delta, low alpha (low arousal, negative valence)
-  const sadScore = normalized.theta * 1.5 + normalized.delta * 1.2 - normalized.alpha * 0.5;
-  
-  // Softmax normalization
-  const expHappy = Math.exp(happyScore);
-  const expNeutral = Math.exp(neutralScore);
-  const expSad = Math.exp(sadScore * 0.8); // Scale down sad score
-  const expSum = expHappy + expNeutral + expSad;
-  
-  const probabilities = {
-    happy: expHappy / expSum,
-    neutral: expNeutral / expSum,
-    sad: expSad / expSum
-  };
+
+  // Helper features
+  const thetaDelta = norm.theta + norm.delta;
+  const highFreq = norm.alpha + norm.beta + norm.gamma;
+  const betaAlpha = norm.beta / (norm.alpha + 1e-6);
+
+  // Calibrated scores (mirrors desktop app improvements)
+  const happyScore =
+    2.0 * norm.alpha +
+    1.1 * norm.beta +
+    1.3 * norm.gamma -
+    0.6 * thetaDelta +
+    0.3 * betaAlpha +
+    0.2 * highFreq;
+
+  const neutralScore =
+    1.2 * norm.alpha +
+    1.0 * norm.beta +
+    0.8 * norm.theta +
+    0.5 * norm.gamma -
+    0.3 * Math.abs(norm.alpha - 0.30) -
+    0.3 * Math.abs(thetaDelta - 0.35);
+
+  const sadScore =
+    1.5 * thetaDelta +
+    0.8 * norm.delta +
+    0.4 * norm.theta -
+    0.7 * norm.alpha -
+    0.4 * norm.gamma;
+
+  // Softmax with mild temperature for better separation
+  const temp = 1.1;
+    const expHappy = Math.exp(happyScore / temp);
+    const expNeutral = Math.exp(neutralScore / temp);
+    const expSad = Math.exp(sadScore / temp);
+    const expSum = expHappy + expNeutral + expSad;
+
+    const probabilities = {
+      happy: expHappy / expSum,
+      neutral: expNeutral / expSum,
+      sad: expSad / expSum
+    };
   
   // Find max
   let emotion: EmotionType = 'neutral';

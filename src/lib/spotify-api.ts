@@ -6,6 +6,7 @@ const SPOTIFY_CLIENT_ID = "00953e5f30d54024a8cf0a72dc6b766f";
 const SPOTIFY_CLIENT_SECRET = "30be2eeee20541849a379333aefa4842";
 
 export type MusicGenre = 'pop' | 'rock' | 'jazz' | 'classical' | 'electronic' | 'hiphop' | 'rnb' | 'ambient';
+export type MusicRegion = 'international' | 'persian';
 
 export interface SpotifyTrack {
   title: string;
@@ -24,6 +25,7 @@ export interface SpotifySearchResult {
 export interface MusicRecommendation {
   emotion: string;
   genre: MusicGenre;
+  region: MusicRegion;
   searchQuery: string;
   tracks: SpotifyTrack[];
 }
@@ -62,10 +64,32 @@ const emotionMusicMap: Record<string, Record<MusicGenre, string[]>> = {
   }
 };
 
-// Get search query based on emotion and genre
-export function getSearchQuery(emotion: string, genre: MusicGenre): string {
+const persianSuffixes = ['persian', 'iranian', 'farsi', 'ایرانی', 'موزیک فارسی'];
+
+const genreSeedMap: Record<MusicGenre, string> = {
+  pop: 'pop',
+  rock: 'rock',
+  jazz: 'jazz',
+  classical: 'classical',
+  electronic: 'electronic',
+  hiphop: 'hip-hop',
+  rnb: 'r-n-b',
+  ambient: 'ambient'
+};
+
+// Get search query based on emotion, genre, and region
+export function getSearchQuery(emotion: string, genre: MusicGenre, region: MusicRegion = 'international'): string {
   const queries = emotionMusicMap[emotion]?.[genre] || emotionMusicMap.neutral[genre];
-  return queries[Math.floor(Math.random() * queries.length)];
+  let query = queries[Math.floor(Math.random() * queries.length)];
+
+  if (region === 'persian') {
+    const suffix = persianSuffixes[Math.floor(Math.random() * persianSuffixes.length)];
+    query = `${query} ${suffix}`;
+  } else {
+    query = `${query} best`;
+  }
+
+  return query;
 }
 
 // Get Spotify access token using Client Credentials flow
@@ -109,46 +133,84 @@ async function getSpotifyToken(): Promise<string | null> {
   }
 }
 
-// Search Spotify using the official API
-export async function searchSpotify(query: string): Promise<SpotifySearchResult> {
+function toMarket(region: MusicRegion): string {
+  return region === 'persian' ? 'IR' : 'US';
+}
+
+function dedupeTracks(tracks: SpotifyTrack[]): SpotifyTrack[] {
+  const seen = new Set<string>();
+  const out: SpotifyTrack[] = [];
+  for (const t of tracks) {
+    const key = t.url || `${t.title}-${t.artist}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+// Search Spotify using the official API with genre + region awareness
+export async function searchSpotify(
+  query: string,
+  genre: MusicGenre,
+  region: MusicRegion = 'international'
+): Promise<SpotifySearchResult> {
   try {
     const token = await getSpotifyToken();
     if (!token) {
       throw new Error('Failed to get access token');
     }
 
-    const response = await fetch(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=5`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`
+    const market = toMarket(region);
+    const seed = genreSeedMap[genre];
+
+    const headers = { 'Authorization': `Bearer ${token}` };
+    const results: SpotifyTrack[] = [];
+
+    // 1) Recommendations endpoint by seed genre (richer, genre-aware)
+    if (seed) {
+      const recUrl = `https://api.spotify.com/v1/recommendations?limit=8&market=${market}&seed_genres=${encodeURIComponent(seed)}`;
+      const recRes = await fetch(recUrl, { headers });
+      if (recRes.ok) {
+        const recData = await recRes.json();
+        if (recData?.tracks) {
+          for (const item of recData.tracks) {
+            results.push({
+              title: item.name || 'Unknown Title',
+              artist: item.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown Artist',
+              duration: formatDuration(item.duration_ms || 0),
+              url: item.external_urls?.spotify || '',
+              imageUrl: item.album?.images?.[0]?.url,
+              previewUrl: item.preview_url
+            });
+          }
         }
       }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
     }
-    
-    const data = await response.json();
-    
-    // Parse the response based on the API structure
-    const tracks: SpotifyTrack[] = [];
-    
-    if (data?.tracks?.items) {
-      for (const item of data.tracks.items) {
-        tracks.push({
-          title: item.name || 'Unknown Title',
-          artist: item.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown Artist',
-          duration: formatDuration(item.duration_ms || 0),
-          url: item.external_urls?.spotify || '',
-          imageUrl: item.album?.images?.[0]?.url,
-          previewUrl: item.preview_url
-        });
+
+    // 2) Fallback: Search with genre filter (for region and keyword alignment)
+    const searchQuery = `${query} genre:"${seed || genre}"`;
+    const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=8&market=${market}`;
+    const searchRes = await fetch(searchUrl, { headers });
+    if (searchRes.ok) {
+      const data = await searchRes.json();
+      if (data?.tracks?.items) {
+        for (const item of data.tracks.items) {
+          results.push({
+            title: item.name || 'Unknown Title',
+            artist: item.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown Artist',
+            duration: formatDuration(item.duration_ms || 0),
+            url: item.external_urls?.spotify || '',
+            imageUrl: item.album?.images?.[0]?.url,
+            previewUrl: item.preview_url
+          });
+        }
       }
     }
-    
-    return { tracks, query };
+
+    const deduped = dedupeTracks(results).slice(0, 8);
+    return { tracks: deduped, query: searchQuery };
   } catch (error) {
     console.error('Spotify search error:', error);
     return { tracks: [], query };
@@ -158,14 +220,16 @@ export async function searchSpotify(query: string): Promise<SpotifySearchResult>
 // Get music recommendations based on emotion and genre
 export async function getMusicRecommendation(
   emotion: string,
-  genre: MusicGenre
+  genre: MusicGenre,
+  region: MusicRegion = 'international'
 ): Promise<MusicRecommendation> {
-  const searchQuery = getSearchQuery(emotion, genre);
-  const searchResult = await searchSpotify(searchQuery);
+  const searchQuery = getSearchQuery(emotion, genre, region);
+  const searchResult = await searchSpotify(searchQuery, genre, region);
   
   return {
     emotion,
     genre,
+    region,
     searchQuery,
     tracks: searchResult.tracks
   };
@@ -188,6 +252,11 @@ export const genreDisplayNames: Record<MusicGenre, string> = {
   hiphop: '🎤 Hip Hop',
   rnb: '🎙️ R&B',
   ambient: '🌙 Ambient'
+};
+
+export const regionDisplayNames: Record<MusicRegion, string> = {
+  international: '🌍 International',
+  persian: '🇮🇷 Persian'
 };
 
 // Get all genres
