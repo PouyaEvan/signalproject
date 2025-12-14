@@ -358,6 +358,9 @@ def classify_emotion(data: np.ndarray, sr: int) -> Dict:
 SPOTIFY_CLIENT_ID = "00953e5f30d54024a8cf0a72dc6b766f"
 SPOTIFY_CLIENT_SECRET = "30be2eeee20541849a379333aefa4842"
 
+# Fast Creat API key
+FAST_CREAT_API_KEY = '5894416619:opSuiY7PUwHB8Ar@Api_ManagerRoBot'
+
 
 def get_spotify_token() -> Optional[str]:
     """Get Spotify access token using Client Credentials flow"""
@@ -462,6 +465,28 @@ def search_spotify(query: str, genre: str, region: str = "international") -> Lis
         return _dedupe_tracks(results)[:8]
     except Exception as e:
         print(f"Spotify search error: {e}")
+        # Fallback to Fast Creat API
+        try:
+            fallback_response = requests.get(
+                f"https://api.fast-creat.ir/spotify?apikey={FAST_CREAT_API_KEY}&action=search&query={query}",
+                timeout=10
+            )
+            if fallback_response.status_code == 200:
+                fallback_data = fallback_response.json()
+                if fallback_data.get("tracks"):
+                    fallback_tracks = []
+                    for item in fallback_data["tracks"]:
+                        fallback_tracks.append({
+                            "title": item.get("name", "Unknown"),
+                            "artist": item.get("artist", "Unknown"),
+                            "album": "Unknown",
+                            "url": item.get("link", ""),
+                            "preview_url": item.get("link", ""),  # Use download link as preview
+                            "image": item.get("image", "https://via.placeholder.com/250?text=MoodFlow")
+                        })
+                    return fallback_tracks[:8]
+        except Exception as fallback_e:
+            print(f"Fallback search error: {fallback_e}")
     
     return []
 

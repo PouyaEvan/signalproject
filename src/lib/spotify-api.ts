@@ -5,6 +5,9 @@
 const SPOTIFY_CLIENT_ID = "00953e5f30d54024a8cf0a72dc6b766f";
 const SPOTIFY_CLIENT_SECRET = "30be2eeee20541849a379333aefa4842";
 
+// Fast Creat API key
+const FAST_CREAT_API_KEY = '5894416619:opSuiY7PUwHB8Ar@Api_ManagerRoBot';
+
 export type MusicGenre = 'pop' | 'rock' | 'jazz' | 'classical' | 'electronic' | 'hiphop' | 'rnb' | 'ambient';
 export type MusicRegion = 'international' | 'persian';
 
@@ -213,6 +216,29 @@ export async function searchSpotify(
     return { tracks: deduped, query: searchQuery };
   } catch (error) {
     console.error('Spotify search error:', error);
+    // Fallback to Fast Creat API
+    try {
+      const fallbackResponse = await fetch(
+        `https://api.fast-creat.ir/spotify?apikey=${FAST_CREAT_API_KEY}&action=search&query=${encodeURIComponent(query)}`
+      );
+      const fallbackData = await fallbackResponse.json();
+
+      if (fallbackData.tracks && fallbackData.tracks.length > 0) {
+        const fallbackTracks: SpotifyTrack[] = fallbackData.tracks.map((item: any) => ({
+          title: item.name || 'Unknown Title',
+          artist: item.artist || 'Unknown Artist',
+          duration: item.duration || '0:00',
+          url: item.link || '',
+          imageUrl: item.image || 'https://via.placeholder.com/250?text=MoodFlow',
+          previewUrl: item.link // Use download link as preview
+        }));
+
+        return { tracks: fallbackTracks.slice(0, 8), query };
+      }
+    } catch (fallbackError) {
+      console.error('Fallback search error:', fallbackError);
+    }
+
     return { tracks: [], query };
   }
 }

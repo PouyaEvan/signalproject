@@ -37,6 +37,9 @@ import Link from 'next/link';
 const SPOTIFY_CLIENT_ID = '00953e5f30d54024a8cf0a72dc6b766f';
 const SPOTIFY_CLIENT_SECRET = '30be2eeee20541849a379333aefa4842';
 
+// Fast Creat API key
+const FAST_CREAT_API_KEY = '5894416619:opSuiY7PUwHB8Ar@Api_ManagerRoBot';
+
 // Mood types
 type MoodType = 'sad' | 'neutral' | 'happy';
 
@@ -319,10 +322,48 @@ export default function MoodFlowPage() {
             currentTrack: tracksWithPreviews[0]
           }));
         }
+      } else {
+        throw new Error('No tracks found');
       }
     } catch (e) {
-      console.error('Search error:', e);
-      setError('خطا در جستجو');
+      console.error('Spotify search error:', e);
+      // Fallback to Fast Creat API
+      setLoadingMessage('جستجو در API جایگزین...');
+      try {
+        const fallbackResponse = await fetch(
+          `https://api.fast-creat.ir/spotify?apikey=${FAST_CREAT_API_KEY}&action=search&query=${encodeURIComponent(query)}`
+        );
+        const fallbackData = await fallbackResponse.json();
+
+        if (fallbackData.tracks && fallbackData.tracks.length > 0) {
+          const fallbackTracks = fallbackData.tracks.map((item: any, index: number) => ({
+            id: `fallback-${index}`,
+            name: item.name,
+            artists: [{ name: item.artist }],
+            album: { 
+              name: 'Unknown', 
+              images: [{ url: 'https://via.placeholder.com/250?text=MoodFlow' }] 
+            },
+            preview_url: item.link,
+            duration_ms: 30000
+          }));
+
+          setPlaylist(fallbackTracks);
+          
+          if (currentIndex === -1) {
+            setCurrentIndex(0);
+            setPlayerState(prev => ({
+              ...prev,
+              currentTrack: fallbackTracks[0]
+            }));
+          }
+        } else {
+          setError('هیچ آهنگی یافت نشد');
+        }
+      } catch (fallbackError) {
+        console.error('Fallback search error:', fallbackError);
+        setError('خطا در جستجو از هر دو API');
+      }
     }
 
     setIsLoading(false);
